@@ -30,6 +30,7 @@ const DEFAULTS = {
   ],
   names: {},
   known: {},
+  layout: { cols: 2, fit: false, order: [] }, // 대시보드 배열 (모든 화면에서 같이 쓰임)
 };
 
 // ---------- 설정 ----------
@@ -37,6 +38,7 @@ let cfg = { ...DEFAULTS };
 try {
   cfg = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) };
 } catch { /* 첫 실행 */ }
+cfg.layout = { ...DEFAULTS.layout, ...(cfg.layout || {}) };
 if (!/^[a-f0-9]{16}$/.test(cfg.classCode)) cfg.classCode = crypto.randomBytes(8).toString('hex');
 saveConfig();
 syncStudentConfig();
@@ -105,12 +107,20 @@ function getClient(id) {
       frame: null, frameSeq: 0, distracted: false, keyword: null,
       lockWanted: false, lockText: '', lockedReported: false,
       messages: [], lastSavedAt: 0, lastLogKey: null,
+      addr: '', self: false, power: null, offUntil: 0,
     };
     clients.set(id, c);
   }
   return c;
 }
 for (const id of Object.keys(cfg.known)) getClient(id);
+
+// 선생님 컴퓨터 자신에서 실행 중인 학생 프로그램인지 (전원 끄기 대상에서 빼기 위해)
+function isSelfAddr(a) {
+  if (process.env.SM_DEV_NO_SELF === '1') return false; // 개발용: 같은 컴퓨터의 가짜 학생으로 시험할 때
+  a = String(a || '').replace(/^::ffff:/, '');
+  return a === '127.0.0.1' || a === '::1' || lanIPs().includes(a);
+}
 
 function isOnline(c) {
   return Date.now() - c.lastSeen < Math.max(10000, cfg.captureIntervalSec * 3000);
@@ -278,6 +288,14 @@ async function handleReport(req, res, q) {
   c.proc = (q.get('proc') || '').slice(0, 80);
   c.idleSec = clampInt(q.get('idle'), 0, 864000, 0);
   c.lockedReported = q.get('locked') === '1';
+  c.addr = req.socket.remoteAddress || '';
+  c.self = isSelfAddr(c.addr);
+  // 전원 명령: 학생 프로그램이 받았다고 알려 오거나(pw) 2분이 지나면 지웁니다. 꺼졌다 다시 켜진 PC가 또 꺼지지 않도록.
+  if (c.power) {
+    const done = (Number(q.get('pw')) || 0) >= c.power.seq;
+    if (done && c.power.action === 'off') c.offUntil = Date.now() + c.power.delay * 1000 + 30000;
+    if (done || Date.now() > c.power.expires) c.power = null;
+  }
   const ack = Number(q.get('ack')) || 0;
   c.messages = c.messages.filter((m) => m.id > ack);
 
@@ -297,6 +315,7 @@ async function handleReport(req, res, q) {
     'locktext=' + encodeURIComponent(c.lockText || ''),
   ];
   for (const m of c.messages) lines.push(`msg=${m.id}|${encodeURIComponent(m.text)}`);
+  if (c.power) lines.push(`power=${c.power.seq}|${c.power.action}|${c.power.delay}`);
   send(res, 200, lines.join('\n') + '\n');
 }
 
@@ -318,12 +337,18 @@ function stateJson() {
       lockWanted: c.lockWanted,
       locked: c.lockedReported,
       frameSeq: c.frameSeq,
+      self: c.self,
+      powerPending: !!c.power && c.power.action === 'off',
+      shuttingDown: online && c.offUntil > Date.now(),
     };
   });
-  list.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  // 대시보드에서 정한 순서가 먼저, 순서가 없는 PC는 이름순으로 뒤에
+  const pos = (id) => { const i = cfg.layout.order.indexOf(id); return i < 0 ? Infinity : i; };
+  list.sort((a, b) => (pos(a.id) - pos(b.id)) || a.name.localeCompare(b.name, 'ko'));
   return {
     ips: lanIPs(),
     port: PORT,
+    layout: { cols: cfg.layout.cols, fit: cfg.layout.fit },
     settings: {
       keywords: cfg.keywords,
       captureIntervalSec: cfg.captureIntervalSec,
@@ -418,6 +443,27 @@ async function handleAdmin(req, res, url, local) {
         c.lockText = locked ? text : '';
       }
       return sendJson(res, { ok: true, count: ts.length });
+    }
+    if (p === '/api/layout') {
+      if (body.cols !== undefined) cfg.layout.cols = clampInt(body.cols, 1, 4, cfg.layout.cols);
+      if (body.fit !== undefined) cfg.layout.fit = !!body.fit;
+      if (Array.isArray(body.order)) cfg.layout.order = body.order.map(sanitizeId).filter(Boolean).slice(0, 200);
+      saveConfig();
+      return sendJson(res, { ok: true });
+    }
+    if (p === '/api/power') {
+      const action = body.action === 'cancel' ? 'cancel' : 'off';
+      const delay = action === 'off' ? (Number(body.delay) === 0 ? 0 : 60) : 0;
+      let count = 0;
+      let skipped = 0;
+      for (const c of targets(body.ids)) {
+        if (action === 'off' && c.self) { skipped++; continue; } // 선생님 컴퓨터 자신은 끄지 않음
+        c.power = { seq: ++msgSeq, action, delay, expires: Date.now() + 120000 };
+        if (action === 'cancel') c.offUntil = 0;
+        appendLog(c.id, { type: action === 'off' ? 'poweroff' : 'poweroff-cancel' });
+        count++;
+      }
+      return sendJson(res, { ok: true, count, skipped });
     }
     if (p === '/api/rename') {
       const id = sanitizeId(body.id);

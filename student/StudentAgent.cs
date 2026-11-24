@@ -171,6 +171,7 @@ namespace StudyMonitor
         int maxW = 1280;
         long quality = 60;
         long lastMsgId = 0;
+        long lastPowerSeq = 0;       // 작업 스레드 전용
         DateTime lastOk = DateTime.UtcNow;
         volatile bool locked;
         LockScreen lockScreen;       // UI 스레드 전용
@@ -416,7 +417,8 @@ namespace StudyMonitor
                 + "&proc=" + Esc(proc)
                 + "&idle=" + idleSec
                 + "&locked=" + (locked ? "1" : "0")
-                + "&ack=" + lastMsgId;
+                + "&ack=" + lastMsgId
+                + "&pw=" + lastPowerSeq;
 
             HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
             req.Method = "POST";
@@ -455,6 +457,18 @@ namespace StudyMonitor
                 else if (key == "quality" && int.TryParse(val, out n)) quality = Math.Max(10, Math.Min(95, n));
                 else if (key == "locked") wantLock = val == "1";
                 else if (key == "locktext") lockText = Unesc(val);
+                else if (key == "power")
+                {
+                    // power=<번호>|off|<초>  또는  power=<번호>|cancel|0
+                    string[] p = val.Split('|');
+                    long seq;
+                    int delay;
+                    if (p.Length == 3 && long.TryParse(p[0], out seq) && seq > lastPowerSeq && int.TryParse(p[2], out delay))
+                    {
+                        lastPowerSeq = seq;
+                        Power(p[1], delay);
+                    }
+                }
                 else if (key == "msg")
                 {
                     int bar = val.IndexOf('|');
@@ -471,6 +485,30 @@ namespace StudyMonitor
                 ApplyLock(wantLock, lockText);
                 foreach (string m in messages) ShowMessage(m);
             }));
+        }
+
+        static void Power(string action, int delay)
+        {
+            string args;
+            if (action == "off")
+            {
+                delay = Math.Max(0, Math.Min(600, delay));
+                args = "/s /t " + delay;
+                if (delay > 0) args += " /c \"선생님이 " + (delay >= 60 ? (delay / 60) + "분" : delay + "초") + " 뒤 이 PC를 끕니다. 하던 작업을 저장하세요.\"";
+            }
+            else if (action == "cancel")
+            {
+                args = "/a";
+            }
+            else return;
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "shutdown.exe"), args);
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                using (Process p = Process.Start(psi)) { }
+            }
+            catch { }
         }
 
         static string Unesc(string s)

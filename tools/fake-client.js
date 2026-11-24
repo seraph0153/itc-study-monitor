@@ -35,13 +35,15 @@ const students = [
 ];
 
 function report(s) {
-  const q = new URLSearchParams({ id: s.id, name: s.id, title: s.title, proc: s.proc, idle: s.idle, locked: s.locked ? 1 : 0, ack: s.ack || 0 });
+  const q = new URLSearchParams({ id: s.id, name: s.id, title: s.title, proc: s.proc, idle: s.idle, locked: s.locked ? 1 : 0, ack: s.ack || 0, pw: s.pw || 0 });
   const req = http.request({ host: '127.0.0.1', port: 47800, path: '/api/client/report?' + q, method: 'POST',
     headers: { 'X-Class-Code': cfg.classCode, 'Content-Type': 'image/jpeg', 'Content-Length': s.img.length } }, (res) => {
     let body = '';
     res.on('data', (d) => (body += d));
     res.on('end', () => {
       s.locked = /^locked=1$/m.test(body);
+      const pm = /^power=(\d+)\|(\w+)\|(\d+)$/m.exec(body);
+      if (pm && Number(pm[1]) > (s.pw || 0)) { s.pw = Number(pm[1]); console.log(`[${s.id}] 전원 명령: ${pm[2]} (${pm[3]}초)`); }
       for (const m of body.matchAll(/^msg=(\d+)\|(.*)$/gm)) {
         if (Number(m[1]) > (s.ack || 0)) { s.ack = Number(m[1]); console.log(`[${s.id}] 메시지 수신: ${decodeURIComponent(m[2])}`); }
       }

@@ -27,8 +27,23 @@
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.danger { color: var(--danger); }
   main { padding: 16px; }
-  #grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-  @media (max-width: 820px) { #grid { grid-template-columns: 1fr; } }
+  #grid { display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 600px) { #grid { grid-template-columns: 1fr; } }
+  body.fit main { padding: 12px; }
+  body.fit #grid { min-height: calc(100vh - var(--hh, 60px) - 24px); align-content: center; gap: 12px; }
+  body.fit .screen { max-height: calc((100vh - var(--hh, 60px) - 24px - (var(--rows, 1) - 1) * 12px) / var(--rows, 1) - 110px); }
+  .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 9px; }
+  .seg span { color: var(--muted); font-size: 12px; padding: 0 6px; }
+  .seg button { border: 0; padding: 4px 10px; border-radius: 7px; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .tile[draggable="true"] .tile-head { cursor: grab; }
+  .tile.dragging { opacity: .35; }
+  .tile.dropTarget { border-color: var(--accent); border-style: dashed; }
+  button.dangerFill { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .radio { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 0; color: var(--text); font-size: 14px; cursor: pointer; }
+  .radio input { width: auto; margin-top: 4px; }
+  .radio small { display: block; color: var(--muted); font-size: 12px; }
   .tile { background: var(--panel); border: 2px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
   .tile.distracted { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 25%, transparent); }
   .tile.offline { opacity: .6; }
@@ -84,9 +99,12 @@
   <img class="logo" src="/logo.png" alt="ITC 영어">
   <h1>학습 모니터</h1>
   <span id="summary">연결 확인 중…</span>
+  <div class="seg" id="cols" title="한 줄에 보일 화면 수"><span>배열</span><button data-c="1">1</button><button data-c="2">2</button><button data-c="3">3</button><button data-c="4">4</button></div>
+  <div class="seg"><button id="btnFit" title="스크롤 없이 모든 화면을 창 안에 맞춤">한 화면에 맞추기</button></div>
   <button id="btnMsgAll">전체 메시지</button>
   <button id="btnLockAll">전체 잠금</button>
   <button id="btnUnlockAll">전체 해제</button>
+  <button id="btnPower" class="danger">전원 끄기</button>
   <button id="btnAdd">학생 PC 추가</button>
   <button id="btnSettings">설정</button>
 </header>
@@ -115,6 +133,15 @@
   </ol>
   <p class="hint">이 명령에는 이 교실의 연결 키가 들어 있습니다. 학생이나 외부에 공유하지 마세요. 제거할 때는 명령의 <code>-Code ...</code> 부분을 <code>-Uninstall</code> 로 바꿔 실행합니다.</p>
 </template>
+
+<dialog id="dlgPower">
+  <h2>학생 PC 전원 끄기</h2>
+  <p id="powerInfo" style="margin:0"></p>
+  <label class="radio"><input type="radio" name="pdelay" value="60" checked><span>1분 뒤 끄기 (권장)<small>학생 화면에 "1분 뒤 PC를 끕니다" 경고가 뜹니다. 1분 안에는 취소할 수 있습니다.</small></span></label>
+  <label class="radio"><input type="radio" name="pdelay" value="0"><span>바로 끄기<small>저장하지 않은 작업이 있으면 Windows가 종료를 잠시 멈출 수 있습니다.</small></span></label>
+  <p class="hint">1분 뒤 끄기에서는 열려 있는 프로그램이 강제로 닫혀, 저장하지 않은 작업은 사라질 수 있습니다. 선생님 컴퓨터 자신은 꺼지지 않습니다.</p>
+  <div class="row"><button id="powerCancel" style="margin-right:auto">끄기 취소</button><button data-close>닫기</button><button class="dangerFill" id="powerGo">끄기</button></div>
+</dialog>
 
 <dialog id="dlgMsg">
   <h2 id="msgTitle">메시지 보내기</h2>
@@ -177,6 +204,7 @@ const post = (p, body) => fetch(p, { method: 'POST', headers: { 'Content-Type': 
 
 let state = { clients: [], settings: {} };
 const tiles = new Map();
+let dragId = null;
 let zoomId = null, zoomShot = false, msgIds = [], lockIds = [], histId = null;
 
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
@@ -184,12 +212,14 @@ $('zoom').addEventListener('close', () => { zoomId = null; zoomShot = false; });
 
 function makeTile(c) {
   const t = el('div', 'tile');
+  t.draggable = true;
+  t.title = '끌어서 순서를 바꿀 수 있습니다';
   const head = el('div', 'tile-head');
   const name = el('span', 'name'); name.title = '클릭해서 이름 바꾸기';
   const badges = el('div', 'badges');
   head.append(el('span', 'dot'), name, badges);
   const screen = el('div', 'screen');
-  const img = el('img'); img.alt = ''; img.hidden = true;
+  const img = el('img'); img.alt = ''; img.hidden = true; img.draggable = false;
   const ph = el('span', null, '화면 대기 중');
   screen.append(img, ph);
   const foot = el('div', 'tile-foot');
@@ -210,6 +240,13 @@ function makeTile(c) {
   bMsg.onclick = () => openMsg([id], cur().name + ' 에게 메시지');
   bLock.onclick = () => { cur().lockWanted ? post('/api/lock', { ids: [id], locked: false }).then(refresh) : openLock([id], cur().name + ' 화면 잠금'); };
   bHist.onclick = () => openHist(id);
+
+  // 끌어서 순서 바꾸기
+  t.addEventListener('dragstart', (e) => { dragId = id; t.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); });
+  t.addEventListener('dragend', () => { dragId = null; document.querySelectorAll('.dragging, .dropTarget').forEach((x) => x.classList.remove('dragging', 'dropTarget')); });
+  t.addEventListener('dragover', (e) => { if (dragId && dragId !== id) { e.preventDefault(); t.classList.add('dropTarget'); } });
+  t.addEventListener('dragleave', () => t.classList.remove('dropTarget'));
+  t.addEventListener('drop', (e) => { e.preventDefault(); t.classList.remove('dropTarget'); if (dragId && dragId !== id) moveTile(dragId, id); });
   return { root: t, name, badges, img, ph, title, bLock, seq: -1 };
 }
 
@@ -227,13 +264,16 @@ function render() {
     let t = tiles.get(c.id);
     if (!t) { t = makeTile(c); tiles.set(c.id, t); }
     if ($('grid').children[i] !== t.root) $('grid').insertBefore(t.root, $('grid').children[i] || null);
-    t.root.className = 'tile' + (c.online ? ' online' : ' offline') + (c.distracted ? ' distracted' : '');
+    t.root.className = 'tile' + (c.online ? ' online' : ' offline') + (c.distracted ? ' distracted' : '') + (dragId === c.id ? ' dragging' : '');
     t.name.textContent = c.name;
     t.badges.replaceChildren();
     if (!c.online) t.badges.append(el('span', 'badge gray', c.lastSeen ? '연결 끊김' : '미접속'));
     if (c.distracted) t.badges.append(el('span', 'badge red', '딴짓 감지: ' + c.keyword));
     if (c.away) t.badges.append(el('span', 'badge amber', '자리비움 ' + Math.floor(c.idleSec / 60) + '분'));
     if (c.lockWanted) t.badges.append(el('span', 'badge blue', c.locked ? '잠김' : '잠그는 중'));
+    if (c.shuttingDown) t.badges.append(el('span', 'badge red', '전원 꺼지는 중'));
+    else if (c.powerPending) t.badges.append(el('span', 'badge red', '끄기 명령 전달 중'));
+    if (c.self) t.badges.append(el('span', 'badge gray', '이 컴퓨터'));
     t.title.replaceChildren();
     if (c.online) { t.title.append(el('b', null, c.title || '(창 없음)')); if (c.proc) t.title.append(' · ' + c.proc); t.title.title = c.title; }
     else t.title.textContent = c.lastSeen ? '마지막 접속 ' + new Date(c.lastSeen).toLocaleTimeString('ko-KR') : '';
@@ -248,7 +288,11 @@ function render() {
 }
 
 async function refresh() {
-  try { state = await get('/api/state'); render(); fillAddSteps(); $('btnAdd').hidden = !state.local; }
+  try {
+    const next = await get('/api/state');
+    if (dragId) return; // 끌어서 옮기는 동안에는 다시 그리지 않음
+    state = next; render(); applyLayout(); fillAddSteps(); $('btnAdd').hidden = !state.local;
+  }
   catch { $('summary').textContent = '서버와 연결이 끊겼습니다. 학습 모니터를 다시 실행해 주세요.'; }
 }
 setInterval(refresh, 1000);
@@ -274,6 +318,62 @@ function openLock(ids, title) { lockIds = ids; $('lockTitle').textContent = titl
 $('btnLockAll').onclick = () => openLock(allIds(), '전체 화면 잠금');
 $('btnUnlockAll').onclick = () => post('/api/lock', { ids: allIds(), locked: false }).then(refresh);
 $('lockGo').onclick = async () => { await post('/api/lock', { ids: lockIds, locked: true, text: $('lockText').value }); $('dlgLock').close(); refresh(); };
+
+// 화면 배열
+function applyLayout() {
+  const L = state.layout || { cols: 2, fit: false };
+  document.documentElement.style.setProperty('--cols', L.cols);
+  const cols = innerWidth <= 600 ? 1 : L.cols;
+  document.documentElement.style.setProperty('--rows', Math.max(1, Math.ceil((state.clients || []).length / cols)));
+  document.documentElement.style.setProperty('--hh', document.querySelector('header').offsetHeight + 'px');
+  document.body.classList.toggle('fit', !!L.fit);
+  document.querySelectorAll('#cols button').forEach((b) => b.classList.toggle('on', Number(b.dataset.c) === L.cols));
+  $('btnFit').classList.toggle('on', !!L.fit);
+}
+function setLayout(change) {
+  state.layout = { ...(state.layout || { cols: 2, fit: false }), ...change };
+  applyLayout();
+  post('/api/layout', change);
+}
+document.querySelectorAll('#cols button').forEach((b) => { b.onclick = () => setLayout({ cols: Number(b.dataset.c) }); });
+$('btnFit').onclick = () => setLayout({ fit: !(state.layout && state.layout.fit) });
+addEventListener('resize', applyLayout);
+function moveTile(fromId, toId) {
+  const ids = allIds();
+  const from = ids.indexOf(fromId);
+  const to = ids.indexOf(toId);
+  if (from < 0 || to < 0) return;
+  ids.splice(from, 1);
+  ids.splice(to, 0, fromId); // 아래로 옮기면 대상 뒤로, 위로 옮기면 대상 앞으로
+  state.clients.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+  render();
+  post('/api/layout', { order: ids });
+}
+
+// 전원 끄기
+const powerTargets = () => state.clients.filter((c) => c.online && !c.self);
+$('btnPower').onclick = () => {
+  const n = powerTargets().length;
+  const self = state.clients.filter((c) => c.online && c.self).length;
+  $('powerInfo').textContent = n
+    ? `접속 중인 학생 PC ${n}대를 끕니다.` + (self ? ' (이 컴퓨터는 제외)' : '')
+    : '지금 접속 중인 학생 PC가 없습니다.';
+  $('powerGo').disabled = !n;
+  $('dlgPower').showModal();
+};
+$('powerGo').onclick = async () => {
+  const delay = Number(document.querySelector('input[name=pdelay]:checked').value);
+  const r = await post('/api/power', { ids: powerTargets().map((c) => c.id), action: 'off', delay });
+  $('dlgPower').close();
+  refresh();
+  if (!r.count) alert('끌 수 있는 학생 PC가 없습니다.');
+};
+$('powerCancel').onclick = async () => {
+  const r = await post('/api/power', { ids: allIds(), action: 'cancel' });
+  $('dlgPower').close();
+  refresh();
+  alert(`${r.count}대에 끄기 취소를 보냈습니다. (이미 꺼진 PC는 되돌릴 수 없습니다)`);
+};
 
 // 학생 PC 추가 (설치 명령)
 function fillAddSteps() {
