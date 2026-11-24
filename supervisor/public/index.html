@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ITC 영어 학습 모니터</title>
+<style>
+  /* ITC 영어 로고 색: 파랑 #00ADEF · 초록 #68BC45 · 주황 #F9AB00 · 글자 회색 #4D4D4D */
+  :root {
+    --brand: #00adef; --brand-green: #68bc45; --brand-orange: #f9ab00;
+    --bg: #f2f8fc; --panel: #ffffff; --text: #3b4046; --muted: #7b858f; --line: #dbe6ee;
+    --accent: #0089cf; --danger: #e5484d; --warn: #d98300; --ok: #55ab2c; --screen: #0e1620;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 18px; background: var(--panel); position: sticky; top: 0; z-index: 5;
+    border-top: 4px solid; border-image: linear-gradient(90deg, var(--brand) 0 62%, var(--brand-green) 62% 90%, var(--brand-orange) 90%) 1; box-shadow: 0 1px 0 var(--line), 0 4px 14px rgba(0, 120, 180, .06); }
+  header .logo { height: 34px; display: block; }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; padding-left: 12px; border-left: 1px solid var(--line); color: var(--muted); }
+  .tile { box-shadow: 0 2px 10px rgba(0, 120, 180, .06); }
+  .tile.online .tile-head { background: linear-gradient(90deg, rgba(0,173,239,.07), transparent 60%); }
+  button.primary:hover { filter: brightness(1.06); }
+  #empty { border-top: 4px solid var(--brand); }
+  #summary { color: var(--muted); margin-right: auto; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  main { padding: 16px; }
+  #grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 820px) { #grid { grid-template-columns: 1fr; } }
+  .tile { background: var(--panel); border: 2px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .tile.distracted { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 25%, transparent); }
+  .tile.offline { opacity: .6; }
+  .tile-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+  .online .dot { background: var(--ok); }
+  .name { font-weight: 600; font-size: 15px; cursor: pointer; }
+  .badges { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+  .badge { font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; }
+  .badge.red { color: var(--danger); } .badge.amber { color: var(--warn); } .badge.gray { color: var(--muted); } .badge.blue { color: var(--accent); }
+  .screen { aspect-ratio: 16 / 9; background: var(--screen); display: flex; align-items: center; justify-content: center; cursor: zoom-in; color: #7b8292; }
+  .screen img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .tile-foot { padding: 9px 12px; display: flex; gap: 8px; align-items: center; }
+  .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+  .title b { color: var(--text); font-weight: 500; }
+  #empty { max-width: 640px; margin: 40px auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px 28px; }
+  #empty h2 { margin-top: 0; font-size: 17px; }
+  #empty code { background: var(--bg); padding: 1px 6px; border-radius: 5px; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); padding: 20px; width: min(480px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.55); }
+  dialog h2 { margin: 0 0 12px; font-size: 16px; }
+  dialog.wide { width: min(1100px, 96vw); }
+  textarea, input, select { font: inherit; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+  label { display: block; margin: 12px 0 4px; color: var(--muted); font-size: 13px; }
+  .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .chips button { font-size: 12px; padding: 3px 10px; border-radius: 99px; }
+  .cols3 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 12px; }
+  #zoom { width: min(1500px, 97vw); padding: 12px; }
+  #zoom img { width: 100%; max-height: 82vh; object-fit: contain; background: var(--screen); border-radius: 8px; display: block; }
+  #zoomHead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  #zoomHead span { margin-right: auto; font-weight: 600; }
+  .hist { display: grid; grid-template-columns: 340px 1fr; gap: 16px; height: 68vh; }
+  .hist > div { overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+  .logrow { padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .logrow time { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  .logrow.d { color: var(--danger); }
+  .logrow.sys { color: var(--accent); }
+  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; padding: 10px; align-content: start; }
+  .shot { border: 2px solid var(--line); border-radius: 8px; overflow: hidden; cursor: zoom-in; background: var(--screen); }
+  .shot.d { border-color: var(--danger); }
+  .shot img { width: 100%; aspect-ratio: 16/9; object-fit: contain; display: block; }
+  .shot div { font-size: 12px; padding: 3px 8px; background: var(--panel); font-variant-numeric: tabular-nums; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .pad { padding: 16px; color: var(--muted); }
+  .steps { padding-left: 20px; margin: 8px 0; } .steps li { margin-bottom: 10px; }
+  .cmd { display: flex; gap: 8px; align-items: stretch; margin-top: 6px; }
+  .cmd code { flex: 1; min-width: 0; display: block; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.5 ui-monospace, Consolas, monospace; word-break: break-all; user-select: all; }
+</style>
+</head>
+<body>
+<header>
+  <img class="logo" src="/logo.png" alt="ITC 영어">
+  <h1>학습 모니터</h1>
+  <span id="summary">연결 확인 중…</span>
+  <button id="btnMsgAll">전체 메시지</button>
+  <button id="btnLockAll">전체 잠금</button>
+  <button id="btnUnlockAll">전체 해제</button>
+  <button id="btnAdd">학생 PC 추가</button>
+  <button id="btnSettings">설정</button>
+</header>
+<main>
+  <div id="grid"></div>
+  <div id="empty" hidden>
+    <h2>아직 연결된 학생 PC가 없습니다</h2>
+    <div class="addSteps"></div>
+    <p class="hint">자동으로 안 잡히면 선생님 컴퓨터(Windows)에서 <code>allow-firewall.bat</code> 을 관리자 권한으로 실행해 주세요. 그래도 안 되면 명령 끝에 <code>-Server <span id="ips"></span></code> 처럼 이 컴퓨터의 IP를 붙여 다시 실행합니다.</p>
+  </div>
+</main>
+
+<dialog id="dlgAdd" class="wide" style="width:min(760px,96vw)">
+  <h2>학생 PC 추가</h2>
+  <div class="addSteps"></div>
+  <div class="row"><button data-close>닫기</button></div>
+</dialog>
+
+<template id="tplAdd">
+  <ol class="steps">
+    <li>학생 PC에서 <b>시작 버튼을 마우스 오른쪽 클릭 &gt; "터미널" 또는 "Windows PowerShell"</b>을 엽니다. (관리자 권한 필요 없음)</li>
+    <li>아래 명령을 <b>복사</b>해서 붙여 넣고 Enter 를 누릅니다.
+      <div class="cmd"><code></code><button class="primary copy">복사</button></div>
+    </li>
+    <li>"[OK] Installed." 가 나오면 창을 닫습니다. 몇 초 안에 이 화면에 나타나고, 이후에는 로그인할 때마다 자동으로 연결됩니다.</li>
+  </ol>
+  <p class="hint">이 명령에는 이 교실의 연결 키가 들어 있습니다. 학생이나 외부에 공유하지 마세요. 제거할 때는 명령의 <code>-Code ...</code> 부분을 <code>-Uninstall</code> 로 바꿔 실행합니다.</p>
+</template>
+
+<dialog id="dlgMsg">
+  <h2 id="msgTitle">메시지 보내기</h2>
+  <textarea id="msgText" rows="3" maxlength="500" placeholder="학생 화면에 표시할 내용"></textarea>
+  <div class="chips" id="msgChips"></div>
+  <div class="row"><button data-close>취소</button><button class="primary" id="msgSend">보내기</button></div>
+</dialog>
+
+<dialog id="dlgLock">
+  <h2 id="lockTitle">화면 잠금</h2>
+  <label>잠금 화면에 표시할 문구</label>
+  <input id="lockText" maxlength="200" value="잠시 화면이 잠겼습니다. 선생님을 봐 주세요.">
+  <p class="hint">잠긴 동안 학생은 키보드·마우스를 쓸 수 없습니다. 선생님 컴퓨터와 1분 이상 연결이 끊기면 자동으로 풀립니다.</p>
+  <div class="row"><button data-close>취소</button><button class="primary" id="lockGo">잠그기</button></div>
+</dialog>
+
+<dialog id="dlgSettings">
+  <h2>설정</h2>
+  <label>딴짓 감지 키워드 (한 줄에 하나 · 창 제목이나 프로그램 이름에 포함되면 빨간색으로 표시)</label>
+  <textarea id="setKeywords" rows="9"></textarea>
+  <div class="cols3">
+    <div><label>화면 갱신 주기 (초)</label><input id="setInterval" type="number" min="1" max="60"></div>
+    <div><label>기록용 스크린샷 저장 주기 (초, 0=저장 안 함)</label><input id="setSave" type="number" min="0" max="3600"></div>
+    <div><label>기록 보관 기간 (일, 0=계속 보관)</label><input id="setRetention" type="number" min="0" max="365"></div>
+    <div><label>자리비움 판단 (입력 없는 분)</label><input id="setIdle" type="number" min="1" max="120"></div>
+  </div>
+  <div id="remoteBox">
+    <label>다른 컴퓨터에서도 보기 (같은 와이파이)</label>
+    <div style="display:flex;gap:8px">
+      <input id="remotePw" type="password" placeholder="접속 비밀번호 정하기 (8자 이상)" autocomplete="new-password">
+      <button id="remoteOn" style="white-space:nowrap">켜기</button>
+      <button id="remoteOff" class="danger" style="white-space:nowrap">끄기</button>
+    </div>
+    <p class="hint" id="remoteHint"></p>
+  </div>
+  <div class="row"><button data-close>취소</button><button class="primary" id="setSaveBtn">저장</button></div>
+</dialog>
+
+<dialog id="zoom">
+  <div id="zoomHead"><span id="zoomName"></span><button data-close>닫기</button></div>
+  <img id="zoomImg" alt="">
+</dialog>
+
+<dialog id="dlgHist" class="wide">
+  <div id="zoomHead" style="margin-bottom:12px">
+    <span id="histName"></span>
+    <select id="histDate" style="width:auto"></select>
+    <button class="danger" id="histForget">이 PC 목록에서 제거</button>
+    <button data-close>닫기</button>
+  </div>
+  <div class="hist"><div id="histLog"></div><div id="histShots" class="shots"></div></div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const json = (r) => { if (r.status === 401) { location.href = '/login'; throw new Error('login'); } return r.json(); };
+const get = (p) => fetch(p).then(json);
+const post = (p, body) => fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json);
+
+let state = { clients: [], settings: {} };
+const tiles = new Map();
+let zoomId = null, zoomShot = false, msgIds = [], lockIds = [], histId = null;
+
+document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
+$('zoom').addEventListener('close', () => { zoomId = null; zoomShot = false; });
+
+function makeTile(c) {
+  const t = el('div', 'tile');
+  const head = el('div', 'tile-head');
+  const name = el('span', 'name'); name.title = '클릭해서 이름 바꾸기';
+  const badges = el('div', 'badges');
+  head.append(el('span', 'dot'), name, badges);
+  const screen = el('div', 'screen');
+  const img = el('img'); img.alt = ''; img.hidden = true;
+  const ph = el('span', null, '화면 대기 중');
+  screen.append(img, ph);
+  const foot = el('div', 'tile-foot');
+  const title = el('div', 'title');
+  const bMsg = el('button', null, '메시지');
+  const bLock = el('button', null, '잠금');
+  const bHist = el('button', null, '기록');
+  foot.append(title, bMsg, bLock, bHist);
+  t.append(head, screen, foot);
+
+  const id = c.id;
+  const cur = () => state.clients.find((x) => x.id === id) || c;
+  name.onclick = async () => {
+    const v = prompt('표시할 이름 (비우면 PC 이름으로 되돌림)', cur().name);
+    if (v !== null) { await post('/api/rename', { id, name: v }); refresh(); }
+  };
+  screen.onclick = () => { zoomId = id; zoomShot = false; $('zoomName').textContent = cur().name; $('zoomImg').src = '/api/frame?id=' + id + '&s=' + cur().frameSeq; $('zoom').showModal(); };
+  bMsg.onclick = () => openMsg([id], cur().name + ' 에게 메시지');
+  bLock.onclick = () => { cur().lockWanted ? post('/api/lock', { ids: [id], locked: false }).then(refresh) : openLock([id], cur().name + ' 화면 잠금'); };
+  bHist.onclick = () => openHist(id);
+  return { root: t, name, badges, img, ph, title, bLock, seq: -1 };
+}
+
+function render() {
+  const cs = state.clients;
+  $('empty').hidden = cs.length > 0;
+  $('ips').textContent = (state.ips || []).join(', ') || '확인 불가';
+  const on = cs.filter((c) => c.online).length;
+  const bad = cs.filter((c) => c.distracted).length;
+  $('summary').textContent = cs.length ? `접속 ${on} / ${cs.length}대` + (bad ? ` · 딴짓 감지 ${bad}명` : '') : '';
+  document.title = (bad ? `(${bad}) ` : '') + 'ITC 영어 학습 모니터';
+
+  for (const [id, t] of tiles) if (!cs.some((c) => c.id === id)) { t.root.remove(); tiles.delete(id); }
+  cs.forEach((c, i) => {
+    let t = tiles.get(c.id);
+    if (!t) { t = makeTile(c); tiles.set(c.id, t); }
+    if ($('grid').children[i] !== t.root) $('grid').insertBefore(t.root, $('grid').children[i] || null);
+    t.root.className = 'tile' + (c.online ? ' online' : ' offline') + (c.distracted ? ' distracted' : '');
+    t.name.textContent = c.name;
+    t.badges.replaceChildren();
+    if (!c.online) t.badges.append(el('span', 'badge gray', c.lastSeen ? '연결 끊김' : '미접속'));
+    if (c.distracted) t.badges.append(el('span', 'badge red', '딴짓 감지: ' + c.keyword));
+    if (c.away) t.badges.append(el('span', 'badge amber', '자리비움 ' + Math.floor(c.idleSec / 60) + '분'));
+    if (c.lockWanted) t.badges.append(el('span', 'badge blue', c.locked ? '잠김' : '잠그는 중'));
+    t.title.replaceChildren();
+    if (c.online) { t.title.append(el('b', null, c.title || '(창 없음)')); if (c.proc) t.title.append(' · ' + c.proc); t.title.title = c.title; }
+    else t.title.textContent = c.lastSeen ? '마지막 접속 ' + new Date(c.lastSeen).toLocaleTimeString('ko-KR') : '';
+    t.bLock.textContent = c.lockWanted ? '잠금 해제' : '잠금';
+    if (c.frameSeq > 0 && c.frameSeq !== t.seq) {
+      t.seq = c.frameSeq;
+      t.img.src = '/api/frame?id=' + c.id + '&s=' + c.frameSeq;
+      t.img.hidden = false; t.ph.hidden = true;
+      if (zoomId === c.id && !zoomShot) $('zoomImg').src = t.img.src;
+    }
+  });
+}
+
+async function refresh() {
+  try { state = await get('/api/state'); render(); fillAddSteps(); $('btnAdd').hidden = !state.local; }
+  catch { $('summary').textContent = '서버와 연결이 끊겼습니다. 학습 모니터를 다시 실행해 주세요.'; }
+}
+setInterval(refresh, 1000);
+refresh();
+
+const allIds = () => state.clients.map((c) => c.id);
+
+// 메시지
+['집중해서 공부합시다.', '자리로 돌아와 주세요.', '쉬는 시간입니다.', '선생님에게 와 주세요.'].forEach((s) => {
+  const b = el('button', null, s); b.onclick = () => { $('msgText').value = s; }; $('msgChips').append(b);
+});
+function openMsg(ids, title) { msgIds = ids; $('msgTitle').textContent = title; $('msgText').value = ''; $('dlgMsg').showModal(); $('msgText').focus(); }
+$('btnMsgAll').onclick = () => openMsg(allIds(), '전체 학생에게 메시지');
+$('msgSend').onclick = async () => {
+  const text = $('msgText').value.trim();
+  if (!text) return;
+  await post('/api/message', { ids: msgIds, text });
+  $('dlgMsg').close();
+};
+
+// 잠금
+function openLock(ids, title) { lockIds = ids; $('lockTitle').textContent = title; $('dlgLock').showModal(); }
+$('btnLockAll').onclick = () => openLock(allIds(), '전체 화면 잠금');
+$('btnUnlockAll').onclick = () => post('/api/lock', { ids: allIds(), locked: false }).then(refresh);
+$('lockGo').onclick = async () => { await post('/api/lock', { ids: lockIds, locked: true, text: $('lockText').value }); $('dlgLock').close(); refresh(); };
+
+// 학생 PC 추가 (설치 명령)
+function fillAddSteps() {
+  const cmd = state.studentInstall;
+  document.querySelectorAll('.addSteps').forEach((box) => {
+    if (!cmd) { box.textContent = '학생 PC 추가 방법은 서버를 켠 컴퓨터의 대시보드에서 볼 수 있습니다.'; box.className = 'addSteps hint'; return; }
+    if (box.dataset.cmd === cmd) return;
+    box.dataset.cmd = cmd;
+    box.className = 'addSteps';
+    box.replaceChildren($('tplAdd').content.cloneNode(true));
+    box.querySelector('.cmd code').textContent = cmd;
+    const btn = box.querySelector('.copy');
+    btn.onclick = async () => {
+      try { await navigator.clipboard.writeText(cmd); btn.textContent = '복사됨'; }
+      catch { btn.textContent = '직접 선택해서 복사'; }
+      setTimeout(() => { btn.textContent = '복사'; }, 2000);
+    };
+  });
+}
+$('btnAdd').onclick = () => { fillAddSteps(); $('dlgAdd').showModal(); };
+
+// 설정
+$('btnSettings').onclick = () => {
+  const s = state.settings;
+  $('setKeywords').value = (s.keywords || []).join('\n');
+  $('setInterval').value = s.captureIntervalSec; $('setSave').value = s.saveEverySec;
+  $('setRetention').value = s.retentionDays; $('setIdle').value = s.idleMinutes;
+  $('remoteBox').hidden = !state.local;
+  $('remotePw').value = '';
+  remoteHint();
+  $('dlgSettings').showModal();
+};
+function remoteHint() {
+  const addr = (state.ips || []).map((ip) => `http://${ip}:${state.port}`).join(' 또는 ');
+  $('remoteHint').textContent = state.remoteEnabled
+    ? `켜짐 · 다른 컴퓨터의 브라우저에서 ${addr || '(IP 확인 불가)'} 로 접속해 비밀번호를 입력하세요.`
+    : '꺼짐 · 지금은 이 컴퓨터에서만 볼 수 있습니다.';
+  $('remoteOff').hidden = !state.remoteEnabled;
+  $('remoteOn').textContent = state.remoteEnabled ? '비밀번호 변경' : '켜기';
+}
+async function setRemote(password) {
+  const r = await post('/api/remote-access', { password });
+  if (!r.ok) { alert(r.error || '변경하지 못했습니다.'); return; }
+  $('remotePw').value = '';
+  await refresh();
+  remoteHint();
+}
+$('remoteOn').onclick = () => setRemote($('remotePw').value);
+$('remoteOff').onclick = () => setRemote('');
+$('setSaveBtn').onclick = async () => {
+  await post('/api/settings', {
+    keywords: $('setKeywords').value.split('\n'),
+    captureIntervalSec: $('setInterval').value, saveEverySec: $('setSave').value,
+    retentionDays: $('setRetention').value, idleMinutes: $('setIdle').value,
+  });
+  $('dlgSettings').close(); refresh();
+};
+
+// 기록
+const fmtShot = (n) => n.slice(0, 2) + ':' + n.slice(2, 4) + ':' + n.slice(4, 6);
+async function openHist(id) {
+  histId = id;
+  const c = state.clients.find((x) => x.id === id);
+  $('histName').textContent = (c ? c.name : id) + ' 기록';
+  const { dates } = await get('/api/history/dates?id=' + id);
+  $('histDate').replaceChildren(...dates.map((d) => { const o = el('option', null, d); o.value = d; return o; }));
+  $('dlgHist').showModal();
+  loadHist();
+}
+async function loadHist() {
+  const date = $('histDate').value;
+  $('histLog').replaceChildren(); $('histShots').replaceChildren();
+  if (!date) { $('histLog').append(el('div', 'pad', '저장된 기록이 없습니다.')); return; }
+  const { log, shots } = await get(`/api/history?id=${histId}&date=${date}`);
+  for (const e of log) {
+    const sys = e.type !== 'activity';
+    const row = el('div', 'logrow' + (sys ? ' sys' : e.keyword ? ' d' : ''));
+    const text = e.type === 'message' ? '메시지 전송: ' + e.text : e.type === 'lock' ? '화면 잠금' : e.type === 'unlock' ? '잠금 해제'
+      : (e.title || '(창 없음)') + (e.proc ? ' · ' + e.proc : '');
+    row.append(el('time', null, e.t), text);
+    $('histLog').append(row);
+  }
+  if (!log.length) $('histLog').append(el('div', 'pad', '활동 기록이 없습니다.'));
+  for (const n of shots) {
+    const s = el('div', 'shot' + (n.includes('_d') ? ' d' : ''));
+    const img = el('img'); img.loading = 'lazy'; img.alt = '';
+    img.src = `/api/shot?id=${histId}&date=${date}&name=${n}`;
+    s.append(img, el('div', null, fmtShot(n) + (n.includes('_d') ? ' · 딴짓 감지' : '')));
+    s.onclick = () => { zoomShot = true; zoomId = histId; $('zoomName').textContent = date + ' ' + fmtShot(n); $('zoomImg').src = img.src; $('zoom').showModal(); };
+    $('histShots').append(s);
+  }
+  if (!shots.length) $('histShots').append(el('div', 'pad', '저장된 스크린샷이 없습니다.'));
+}
+$('histDate').onchange = loadHist;
+$('histForget').onclick = async () => {
+  if (!confirm('이 PC를 목록에서 제거할까요? (저장된 기록 파일은 지워지지 않으며, PC가 다시 접속하면 목록에 다시 나타납니다)')) return;
+  await post('/api/forget', { id: histId });
+  $('dlgHist').close(); refresh();
+};
+</script>
+</body>
+</html>

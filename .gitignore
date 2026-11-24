@@ -1,0 +1,6 @@
+# 연결 키·설정·기록은 각 컴퓨터에만 둡니다 (절대 올리지 않음)
+supervisor/config.json
+supervisor/data/
+student/config.txt
+student/StudentAgent.exe
+.DS_Store

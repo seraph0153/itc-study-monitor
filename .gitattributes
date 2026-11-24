@@ -1,0 +1,3 @@
+# Windows 배치 파일은 CRLF 줄바꿈을 그대로 보존
+*.bat -text
+*.png binary
