@@ -9,6 +9,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-start "" http://localhost:47800
+rem The server opens the dashboard by itself once it is ready.
+set SM_OPEN=1
 node server.js
 pause

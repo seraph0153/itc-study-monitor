@@ -6,5 +6,5 @@ if ! command -v node >/dev/null; then
   read -r "?엔터를 누르면 닫힙니다."
   exit 1
 fi
-(sleep 1; open "http://localhost:47800") &
-node server.js
+# 서버가 준비되면 대시보드를 스스로 엽니다.
+SM_OPEN=1 node server.js

@@ -1,12 +1,13 @@
 # ITC Study Monitor - student PC installer (Windows)
 # Copy the exact command from the teacher dashboard (it contains the connection key), paste it into PowerShell and press Enter:
 #   [Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm https://raw.githubusercontent.com/seraph0153/itc-study-monitor/main/install-student.ps1))) -Code <key>
-# Options: -Server <teacher PC IP>  -Name <display name>  -Uninstall
+# Options: -Server <teacher PC IP>  -Name <display name>  -Uninstall  -Force (install even on the teacher PC, for testing)
 param(
   [string]$Code = '',
   [string]$Server = '',
   [string]$Name = '',
-  [switch]$Uninstall
+  [switch]$Uninstall,
+  [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,6 +27,22 @@ if ($Uninstall) {
   Remove-ItemProperty -Path $RunKey -Name $RunName -ErrorAction SilentlyContinue
   Remove-Item $Dir -Recurse -Force -ErrorAction SilentlyContinue
   Write-Host '[OK] Removed.' -ForegroundColor Green
+  return
+}
+
+# Do not install the student program on the teacher PC (it would show up as an extra screen on the dashboard).
+$isTeacher = Test-Path (Join-Path $env:LOCALAPPDATA 'ITCStudyMonitor\supervisor\server.js')
+if (-not $isTeacher) {
+  try {
+    $tcp = New-Object Net.Sockets.TcpClient
+    $isTeacher = $tcp.ConnectAsync('127.0.0.1', 47800).Wait(700) -and $tcp.Connected
+    $tcp.Close()
+  } catch { }
+}
+if ($isTeacher -and -not $Force) {
+  Write-Host 'This looks like the TEACHER PC (the Study Monitor dashboard is installed or running here).' -ForegroundColor Yellow
+  Write-Host 'The student program was NOT installed. Run this command on each student PC instead.' -ForegroundColor Yellow
+  Write-Host '(To install here anyway for testing, add -Force at the end of the command.)'
   return
 }
 

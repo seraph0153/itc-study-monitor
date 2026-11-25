@@ -6,6 +6,7 @@ const path = require('path');
 const dgram = require('dgram');
 const crypto = require('crypto');
 const os = require('os');
+const { spawn } = require('child_process');
 
 const PORT = 47800;
 const DISCOVERY_PORT = 47801;
@@ -107,7 +108,7 @@ function getClient(id) {
       frame: null, frameSeq: 0, distracted: false, keyword: null,
       lockWanted: false, lockText: '', lockedReported: false,
       messages: [], lastSavedAt: 0, lastLogKey: null,
-      addr: '', self: false, power: null, offUntil: 0,
+      addr: '', self: false, power: null, offUntil: 0, remove: null,
     };
     clients.set(id, c);
   }
@@ -169,6 +170,24 @@ function cleanupOldRecords() {
 }
 cleanupOldRecords();
 setInterval(cleanupOldRecords, 6 * 3600 * 1000).unref();
+
+// ---------- 목록에서 제거 ----------
+function forgetClient(id) {
+  clients.delete(id);
+  delete cfg.known[id];
+  delete cfg.names[id];
+  cfg.layout.order = cfg.layout.order.filter((x) => x !== id);
+  saveConfig();
+}
+// 원격 제거 명령을 받은 PC는 프로그램을 지우고 꺼집니다. 연결이 끊기면 목록에서도 지웁니다.
+// 2분 안에 꺼지지 않으면(예전 버전 프로그램) 명령을 거둡니다.
+setInterval(() => {
+  for (const c of [...clients.values()]) {
+    if (!c.remove) continue;
+    if (!isOnline(c)) forgetClient(c.id);
+    else if (Date.now() > c.remove.expires) { c.remove = null; c.removeFailed = Date.now(); }
+  }
+}, 2000).unref();
 
 // ---------- HTTP ----------
 function send(res, status, body, type = 'text/plain; charset=utf-8') {
@@ -316,6 +335,7 @@ async function handleReport(req, res, q) {
   ];
   for (const m of c.messages) lines.push(`msg=${m.id}|${encodeURIComponent(m.text)}`);
   if (c.power) lines.push(`power=${c.power.seq}|${c.power.action}|${c.power.delay}`);
+  if (c.remove) lines.push(`remove=${c.remove.seq}`);
   send(res, 200, lines.join('\n') + '\n');
 }
 
@@ -339,6 +359,8 @@ function stateJson() {
       frameSeq: c.frameSeq,
       self: c.self,
       powerPending: !!c.power && c.power.action === 'off',
+      removing: !!c.remove,
+      removeFailed: !!c.removeFailed && Date.now() - c.removeFailed < 60000,
       shuttingDown: online && c.offUntil > Date.now(),
     };
   });
@@ -474,12 +496,18 @@ async function handleAdmin(req, res, url, local) {
       return sendJson(res, { ok: true });
     }
     if (p === '/api/forget') {
+      // 켜져 있는 PC는 학생 프로그램에 "스스로 제거" 명령을 보내고, 꺼져 있는 PC는 목록에서만 지웁니다.
       const id = sanitizeId(body.id);
-      clients.delete(id);
-      delete cfg.known[id];
-      delete cfg.names[id];
-      saveConfig();
-      return sendJson(res, { ok: true });
+      const c = clients.get(id);
+      if (!c) return sendJson(res, { ok: true, mode: 'gone' });
+      if (isOnline(c)) {
+        c.remove = { seq: ++msgSeq, at: Date.now(), expires: Date.now() + 120000 };
+        c.removeFailed = 0;
+        appendLog(id, { type: 'remove' });
+        return sendJson(res, { ok: true, mode: 'remote' });
+      }
+      forgetClient(id);
+      return sendJson(res, { ok: true, mode: 'list' });
     }
     if (p === '/api/remote-access') {
       // 원격 보기 켜기/끄기와 비밀번호 변경은 서버를 켠 컴퓨터에서만 할 수 있습니다.
@@ -528,7 +556,11 @@ const server = http.createServer((req, res) => {
 });
 
 server.on('error', (e) => {
-  if (e.code === 'EADDRINUSE') console.error(`포트 ${PORT} 가 이미 사용 중입니다. 학습 모니터가 이미 실행 중인지 확인하세요.`);
+  if (e.code === 'EADDRINUSE') {
+    // 이미 켜져 있으면 대시보드만 열어 줍니다 (바로가기를 두 번 눌렀을 때).
+    console.error(`학습 모니터가 이미 실행 중입니다. 대시보드를 엽니다.`);
+    if (process.env.SM_OPEN === '1') { openBrowser(`http://localhost:${PORT}`); setTimeout(() => process.exit(0), 1500); return; }
+  }
   else console.error(e);
   process.exit(1);
 });
@@ -538,7 +570,17 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  대시보드 (이 컴퓨터에서만 열림): http://localhost:${PORT}`);
   console.log(`  이 컴퓨터의 IP: ${lanIPs().join(', ') || '(네트워크 연결 없음)'}`);
   console.log('  종료하려면 Ctrl+C 를 누르세요.');
+  // start.bat / start.command 로 켰을 때만, 서버가 준비된 뒤 대시보드를 엽니다.
+  if (process.env.SM_OPEN === '1') openBrowser(`http://localhost:${PORT}`);
 });
+
+function openBrowser(url) {
+  try {
+    const cmd = process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+      : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+    spawn(cmd[0], cmd[1], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  } catch { /* 브라우저를 못 열어도 서버는 계속 동작 */ }
+}
 
 // ---------- 자동 검색 (UDP) ----------
 // 학생 PC가 같은 와이파이에 "SM_DISCOVER <nonce>" 를 방송하면, 연결 키를 아는 서버임을 증명하는 값과 함께 응답합니다.

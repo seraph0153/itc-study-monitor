@@ -52,6 +52,8 @@
   .online .dot { background: var(--ok); }
   .name { font-weight: 600; font-size: 15px; cursor: pointer; }
   .badges { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+  .forget { flex: none; border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 0 2px 2px; }
+  .forget:hover { color: var(--danger); }
   .badge { font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; }
   .badge.red { color: var(--danger); } .badge.amber { color: var(--warn); } .badge.gray { color: var(--muted); } .badge.blue { color: var(--accent); }
   .screen { aspect-ratio: 16 / 9; background: var(--screen); display: flex; align-items: center; justify-content: center; cursor: zoom-in; color: #7b8292; }
@@ -189,7 +191,7 @@
   <div id="zoomHead" style="margin-bottom:12px">
     <span id="histName"></span>
     <select id="histDate" style="width:auto"></select>
-    <button class="danger" id="histForget">이 PC 목록에서 제거</button>
+    <button class="danger" id="histForget">이 PC 제거</button>
     <button data-close>닫기</button>
   </div>
   <div class="hist"><div id="histLog"></div><div id="histShots" class="shots"></div></div>
@@ -217,7 +219,10 @@ function makeTile(c) {
   const head = el('div', 'tile-head');
   const name = el('span', 'name'); name.title = '클릭해서 이름 바꾸기';
   const badges = el('div', 'badges');
-  head.append(el('span', 'dot'), name, badges);
+  const bForget = el('button', 'forget', '×');
+  bForget.title = '이 PC 제거';
+  bForget.setAttribute('aria-label', '이 PC 제거');
+  head.append(el('span', 'dot'), name, badges, bForget);
   const screen = el('div', 'screen');
   const img = el('img'); img.alt = ''; img.hidden = true; img.draggable = false;
   const ph = el('span', null, '화면 대기 중');
@@ -240,6 +245,7 @@ function makeTile(c) {
   bMsg.onclick = () => openMsg([id], cur().name + ' 에게 메시지');
   bLock.onclick = () => { cur().lockWanted ? post('/api/lock', { ids: [id], locked: false }).then(refresh) : openLock([id], cur().name + ' 화면 잠금'); };
   bHist.onclick = () => openHist(id);
+  bForget.onclick = () => forgetPc(id);
 
   // 끌어서 순서 바꾸기
   t.addEventListener('dragstart', (e) => { dragId = id; t.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); });
@@ -273,6 +279,8 @@ function render() {
     if (c.lockWanted) t.badges.append(el('span', 'badge blue', c.locked ? '잠김' : '잠그는 중'));
     if (c.shuttingDown) t.badges.append(el('span', 'badge red', '전원 꺼지는 중'));
     else if (c.powerPending) t.badges.append(el('span', 'badge red', '끄기 명령 전달 중'));
+    if (c.removing) t.badges.append(el('span', 'badge gray', '제거하는 중'));
+    else if (c.removeFailed) t.badges.append(el('span', 'badge amber', '제거 안 됨: 예전 버전이라 직접 제거 필요'));
     if (c.self) t.badges.append(el('span', 'badge gray', '이 컴퓨터'));
     t.title.replaceChildren();
     if (c.online) { t.title.append(el('b', null, c.title || '(창 없음)')); if (c.proc) t.title.append(' · ' + c.proc); t.title.title = c.title; }
@@ -468,11 +476,19 @@ async function loadHist() {
   if (!shots.length) $('histShots').append(el('div', 'pad', '저장된 스크린샷이 없습니다.'));
 }
 $('histDate').onchange = loadHist;
-$('histForget').onclick = async () => {
-  if (!confirm('이 PC를 목록에서 제거할까요? (저장된 기록 파일은 지워지지 않으며, PC가 다시 접속하면 목록에 다시 나타납니다)')) return;
-  await post('/api/forget', { id: histId });
-  $('dlgHist').close(); refresh();
-};
+// × 버튼: 켜져 있는 PC는 학생 프로그램이 스스로 지워지고 목록에서도 사라집니다. 꺼진 PC는 목록에서만 지웁니다.
+async function forgetPc(id) {
+  const c = state.clients.find((x) => x.id === id);
+  if (!c) return;
+  const msg = c.online
+    ? `"${c.name}" 의 학생 프로그램을 제거할까요?\n\n그 컴퓨터에서 프로그램이 꺼지고 자동 실행도 해제되며, 이 목록에서도 사라집니다.\n다시 보려면 학생 PC 추가 명령으로 새로 설치해야 합니다. (저장된 기록은 남습니다)`
+    : `"${c.name}" 을(를) 목록에서 지울까요?\n\n지금 꺼져 있어서 목록에서만 지웁니다. 그 PC에 학생 프로그램이 남아 있으면 다음에 켤 때 다시 나타납니다. (저장된 기록은 남습니다)`;
+  if (!confirm(msg)) return;
+  await post('/api/forget', { id });
+  if ($('dlgHist').open) $('dlgHist').close();
+  refresh();
+}
+$('histForget').onclick = () => forgetPc(histId);
 </script>
 </body>
 </html>

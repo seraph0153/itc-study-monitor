@@ -15,6 +15,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace StudyMonitor
 {
@@ -172,6 +173,7 @@ namespace StudyMonitor
         long quality = 60;
         long lastMsgId = 0;
         long lastPowerSeq = 0;       // 작업 스레드 전용
+        volatile bool removing;      // 선생님이 원격 제거를 요청함
         DateTime lastOk = DateTime.UtcNow;
         volatile bool locked;
         LockScreen lockScreen;       // UI 스레드 전용
@@ -248,6 +250,7 @@ namespace StudyMonitor
             while (true)
             {
                 int sleepMs = 3000;
+                if (removing) { Thread.Sleep(1000); continue; } // 제거 중에는 더 보고하지 않음
                 try
                 {
                     if (code.Length == 0)
@@ -457,6 +460,14 @@ namespace StudyMonitor
                 else if (key == "quality" && int.TryParse(val, out n)) quality = Math.Max(10, Math.Min(95, n));
                 else if (key == "locked") wantLock = val == "1";
                 else if (key == "locktext") lockText = Unesc(val);
+                else if (key == "remove")
+                {
+                    if (!removing)
+                    {
+                        removing = true;
+                        ui.BeginInvoke(new MethodInvoker(RemoveSelf));
+                    }
+                }
                 else if (key == "power")
                 {
                     // power=<번호>|off|<초>  또는  power=<번호>|cancel|0
@@ -563,6 +574,41 @@ namespace StudyMonitor
         }
 
         // ---------- UI 스레드 ----------
+        // 선생님 대시보드에서 x 를 누르면: 자동 실행 해제, 설치 파일 삭제, 프로그램 종료
+        void RemoveSelf()
+        {
+            try { ApplyLock(false, ""); } catch { }
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
+                {
+                    if (k != null) k.DeleteValue("StudyMonitorStudent", false);
+                }
+            }
+            catch { }
+            try
+            {
+                // 실행 중인 exe 는 스스로 지울 수 없으므로, 종료 3초 뒤 숨은 cmd 가 이 프로그램의 파일만 지웁니다.
+                string dir = Application.StartupPath;
+                StringBuilder cmd = new StringBuilder("/c ping 127.0.0.1 -n 4 >nul");
+                string[] files = { "StudentAgent.exe", "StudentAgent.cs", "config.txt", "build.bat", "install.bat", "uninstall.bat" };
+                foreach (string f in files) cmd.Append(" & del /f /q \"" + Path.Combine(dir, f) + "\"");
+                // 폴더는 이 프로그램 전용 폴더일 때만, 그리고 비어 있을 때만 지웁니다 (rmdir 은 빈 폴더만 지움).
+                if (Path.GetFileName(dir).IndexOf("StudyMonitor", StringComparison.OrdinalIgnoreCase) >= 0)
+                    cmd.Append(" & rmdir \"" + dir + "\"");
+                ProcessStartInfo psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), cmd.ToString());
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.WindowStyle = ProcessWindowStyle.Hidden;
+                psi.WorkingDirectory = Path.GetTempPath();
+                using (Process p = Process.Start(psi)) { }
+            }
+            catch { }
+            tray.Visible = false;
+            tray.Dispose();
+            ExitThread();
+        }
+
         void ApplyLock(bool want, string text)
         {
             if (text == null || text.Length == 0) text = DefaultLockText;
